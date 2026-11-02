@@ -1,0 +1,48 @@
+name: Vérification e-mails gérants
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # pour recommiter les xlsx de sortie
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        agence: [arthurimmo, guyhoquet, ladresse, laforet]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests openpyxl
+
+      - name: Vérifier les e-mails (${{ matrix.agence }})
+        env:
+          SEARLO_API_KEYS: ${{ secrets.SEARLO_API_KEYS }}
+          KEY_OFFSET: ${{ strategy.job-index }}
+        run: python verify_emails.py data/gerants_${{ matrix.agence }}_emails_probables.xlsx --out-dir output --max-minutes 335
+
+      - name: Sauvegarder le xlsx dans le repo
+        if: always()
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add output/
+          git diff --cached --quiet || git commit -m "Résultats ${{ matrix.agence }}"
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin "${GITHUB_REF_NAME}" && git push && break
+            sleep $((RANDOM % 10 + 3))
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resultats-${{ matrix.agence }}
+          path: output/gerants_${{ matrix.agence }}_emails_valides.xlsx
