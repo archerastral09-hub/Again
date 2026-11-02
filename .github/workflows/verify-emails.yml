@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        agence: [arthurimmo, guyhoquet, ladresse, laforet]
+        agence: [arthurimmo, ladresse, laforet]
     steps:
       - uses: actions/checkout@v4
 
