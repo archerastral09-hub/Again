@@ -21,7 +21,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 BASE_URL = os.environ.get("SEARLO_BASE_URL", "https://api.searlo.tech/api/v1")
 VERIFY_URL = f"{BASE_URL}/email-verifier/verify"
 NO_EMAIL = "no email"
-SAVE_EVERY = 10  # gérants entre deux sauvegardes
+SAVE_EVERY =5 # gérants entre deux sauvegardes
 
 FONT = "Arial"
 
