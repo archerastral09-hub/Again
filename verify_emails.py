@@ -8,6 +8,7 @@ Pour chaque gérant : on teste les e-mails probables 1 par 1.
 Un fichier de sortie .xlsx par agence. Reprise automatique si le fichier de sortie existe déjà.
 """
 import argparse
+import json
 import os
 import re
 import sys
@@ -30,6 +31,10 @@ class FatalError(Exception):
     """Erreur qui doit stopper le run (clé invalide, plus de crédits...)."""
 
 
+class DailyLimitReached(FatalError):
+    """Toutes les clés ont atteint la limite journalière (reprise possible demain, après 00:00 UTC)."""
+
+
 class KeyPool:
     """Plusieurs clés API : on reste sur la courante, on bascule quand elle est morte (402/401/403)."""
 
@@ -41,7 +46,7 @@ class KeyPool:
     def current(self):
         return self.keys[self.i]
 
-    def burn(self, reason):
+    def burn(self, reason, exc_cls=None):
         print(f"  ! clé #{self.i + 1}/{len(self.keys)} retirée ({reason})", flush=True)
         self.dead.add(self.i)
         for step in range(1, len(self.keys) + 1):
@@ -50,6 +55,8 @@ class KeyPool:
                 self.i = j
                 print(f"  -> bascule sur la clé #{j + 1}", flush=True)
                 return
+        if exc_cls is DailyLimitReached:
+            raise DailyLimitReached("Limite journalière atteinte sur toutes les clés.")
         raise FatalError("Toutes les clés API sont épuisées ou refusées.")
 
 
@@ -97,6 +104,12 @@ def verify_email(session, email, pool, cache):
             except ValueError:
                 wait = 30
             body = (resp.text or "").strip().replace("\n", " ")[:150]
+            if "per day" in body.lower() or wait > 600:
+                # quota journalier (ex. 50 vérifs/jour sans crédits achetés) : inutile d'attendre
+                print(f"    429 {body} (Retry-After {wait}s)", flush=True)
+                pool.burn("limite journalière atteinte", DailyLimitReached)
+                busy_retries = 0
+                continue
             print(f"    429 {body} -> attente {wait}s (essai {busy_retries}/30)", flush=True)
             time.sleep(max(wait, 1))
             continue
@@ -182,12 +195,26 @@ def write_output(path, results):
     tmp.replace(path)
 
 
+def load_cache(path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_cache(path, cache):
+    # 'unknown' est gratuit et peut changer : on ne le garde pas
+    keep = {k: v for k, v in cache.items() if v not in ("unknown", "error")}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(keep, ensure_ascii=False, indent=0), encoding="utf-8")
+
+
 def out_name(in_path):
     stem = in_path.stem.replace("_emails_probables", "_emails_valides")
     return f"{stem}.xlsx"
 
 
-def process_file(in_path, out_dir, session, pool, deadline):
+def process_file(in_path, out_dir, session, pool, deadline, cache):
     out_path = out_dir / out_name(in_path)
     gerants = read_input(in_path)
 
@@ -199,7 +226,7 @@ def process_file(in_path, out_dir, session, pool, deadline):
     start = len(results)
     print(f"\n=== {in_path.name} : {len(gerants)} gérants (reprise à {start}) ===", flush=True)
 
-    cache = {}
+    cache_path = out_dir / "_cache.json"
     checks = 0
     complete = True
     try:
@@ -223,11 +250,15 @@ def process_file(in_path, out_dir, session, pool, deadline):
             print(f"  [{i + 1}/{len(gerants)}] {name} -> {found}", flush=True)
             if len(results) % SAVE_EVERY == 0:
                 write_output(out_path, results)
+                save_cache(cache_path, cache)
     except FatalError as exc:
         write_output(out_path, results)
-        print(f"::error::{exc} (progression sauvegardée : {len(results)}/{len(gerants)})")
+        save_cache(cache_path, cache)
+        level = "warning" if isinstance(exc, DailyLimitReached) else "error"
+        print(f"::{level}::{exc} (progression sauvegardée : {len(results)}/{len(gerants)})")
         raise
     write_output(out_path, results)
+    save_cache(cache_path, cache)
     ok = sum(1 for r in results if r[1] != NO_EMAIL)
     print(f"  -> {out_path} : {ok} e-mails valides / {len(results)} gérants, {checks} appels", flush=True)
     return complete
@@ -250,9 +281,13 @@ def main():
     deadline = time.time() + args.max_minutes * 60
     session = requests.Session()
     all_done = True
+    cache = load_cache(Path(args.out_dir) / "_cache.json")
     try:
         for p in args.inputs:
-            all_done &= process_file(Path(p), Path(args.out_dir), session, pool, deadline)
+            all_done &= process_file(Path(p), Path(args.out_dir), session, pool, deadline, cache)
+    except DailyLimitReached:
+        print("::warning::Quota journalier atteint. Relance le workflow après 00:00 UTC (ou achète des crédits) : reprise automatique.")
+        sys.exit(0)
     except FatalError:
         sys.exit(1)
     if not all_done:
@@ -261,4 +296,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-  
+      
