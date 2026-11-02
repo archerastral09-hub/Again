@@ -1,19 +1,21 @@
 name: Vérification e-mails gérants
 
 on:
-  workflow_dispatch:
+  schedule:
+    - cron: "10 0 * * *"   # tous les jours à 00:10 UTC, juste après le reset du quota journalier
+  workflow_dispatch:       # lancement manuel possible
 
 permissions:
-  contents: write   # pour recommiter les xlsx de sortie
+  contents: write          # pour recommiter les xlsx de sortie
+
+concurrency:
+  group: verify-emails
+  cancel-in-progress: false
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 355
-    strategy:
-      fail-fast: false
-      matrix:
-        agence: [arthurimmo, ladresse, laforet]
     steps:
       - uses: actions/checkout@v4
 
@@ -23,19 +25,25 @@ jobs:
 
       - run: pip install requests openpyxl
 
-      - name: Vérifier les e-mails (${{ matrix.agence }})
+      # Traite les agences à la suite. S'arrête tout seul quand le quota du jour est atteint
+      # (sauvegarde + exit 0), et reprend là où il s'était arrêté au prochain run.
+      - name: Vérifier les e-mails
         env:
           SEARLO_API_KEYS: ${{ secrets.SEARLO_API_KEYS }}
-          KEY_OFFSET: ${{ strategy.job-index }}
-        run: python verify_emails.py data/gerants_${{ matrix.agence }}_emails_probables.xlsx --out-dir output --max-minutes 335
+        run: |
+          python verify_emails.py \
+            data/gerants_arthurimmo_emails_probables.xlsx \
+            data/gerants_ladresse_emails_probables.xlsx \
+            data/gerants_laforet_emails_probables.xlsx \
+            --out-dir output --max-minutes 335
 
-      - name: Sauvegarder le xlsx dans le repo
+      - name: Sauvegarder les résultats dans le repo
         if: always()
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git add output/
-          git diff --cached --quiet || git commit -m "Résultats ${{ matrix.agence }}"
+          git diff --cached --quiet || git commit -m "Résultats vérification $(date -u +%F)"
           for i in 1 2 3 4 5; do
             git pull --rebase origin "${GITHUB_REF_NAME}" && git push && break
             sleep $((RANDOM % 10 + 3))
@@ -44,5 +52,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: resultats-${{ matrix.agence }}
-          path: output/gerants_${{ matrix.agence }}_emails_valides.xlsx
+          name: resultats-${{ github.run_id }}
+          path: output/*.xlsx
+          
