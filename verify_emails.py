@@ -21,7 +21,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 BASE_URL = os.environ.get("SEARLO_BASE_URL", "https://api.searlo.tech/api/v1")
 VERIFY_URL = f"{BASE_URL}/email-verifier/verify"
 NO_EMAIL = "no email"
-SAVE_EVERY =5 # gérants entre deux sauvegardes
+SAVE_EVERY = 10  # gérants entre deux sauvegardes
 
 FONT = "Arial"
 
@@ -80,6 +80,7 @@ def verify_email(session, email, pool, cache):
             )
         except requests.RequestException as exc:
             server_retries += 1
+            print(f"    réseau/timeout ({type(exc).__name__}) essai {server_retries}/4", flush=True)
             if server_retries > 4:
                 print(f"  ! réseau KO pour {email}: {exc}", flush=True)
                 return "error"
@@ -95,6 +96,8 @@ def verify_email(session, email, pool, cache):
                 wait = int(resp.headers.get("Retry-After", 30))
             except ValueError:
                 wait = 30
+            body = (resp.text or "").strip().replace("\n", " ")[:150]
+            print(f"    429 {body} -> attente {wait}s (essai {busy_retries}/30)", flush=True)
             time.sleep(max(wait, 1))
             continue
         if code in (401, 403):
@@ -208,7 +211,9 @@ def process_file(in_path, out_dir, session, pool, deadline):
             name, emails = gerants[i]
             found, trace = NO_EMAIL, []
             for n, email in enumerate(emails, 1):
+                t0 = time.time()
                 status = verify_email(session, email, pool, cache)
+                print(f"    {email} -> {status} ({time.time() - t0:.1f}s)", flush=True)
                 checks += 1
                 trace.append(f"{n}:{status}")
                 if status == "valid":  # uniquement "valid", rien d'autre
@@ -256,3 +261,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+  
