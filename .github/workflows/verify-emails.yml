@@ -2,7 +2,7 @@ name: Vérification e-mails gérants
 
 on:
   schedule:
-    - cron: "10 0 * * *"   # tous les jours à 00:10 UTC, juste après le reset du quota journalier
+    - cron: "0 2 * * *"   # tous les jours à 00:10 UTC, juste après le reset du quota journalier
   workflow_dispatch:       # lancement manuel possible
 
 permissions:
@@ -35,6 +35,8 @@ jobs:
             data/gerants_arthurimmo_emails_probables.xlsx \
             data/gerants_ladresse_emails_probables.xlsx \
             data/gerants_laforet_emails_probables.xlsx \
+            data/gerants_century21_emails_probables.xlsx \
+            data/gerants_orpi_emails_probables.xlsx \
             --out-dir output --max-minutes 335
 
       - name: Sauvegarder les résultats dans le repo
