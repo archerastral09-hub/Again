@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Enrichit agences_prospection.xlsx via Searlo GET /search/places.
 
-Une ligne source = une requête (q = nom, location = adresse si dispo, limit = 5).
-On garde le résultat dont nom (+ adresse si dispo) est identique après normalisation ; sinon la ligne est ignorée (raison tracée dans l'onglet "Ignorées").
+Une ligne source = une requête (q = nom, location = adresse si dispo, limit = 1).
+Le résultat renvoyé est gardé tel quel (aucune vérification nom/adresse) ; une
+ligne sans résultat est ignorée (raison tracée dans l'onglet "Ignorées").
 Plusieurs clés API : rotation (la moins récemment utilisée d'abord), cooldown sur
 429, clé retirée du pool sur 401/402/403.
 """
@@ -13,7 +14,6 @@ import re
 import sys
 import threading
 import time
-import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -24,69 +24,17 @@ from openpyxl.utils import get_column_letter
 BASE_URL = os.environ.get("SEARLO_BASE_URL", "https://api.searlo.tech/api/v1")
 # Limite Searlo Maps/Places : 240 req/min par compte -> marge de sécurité
 RATE_PER_MIN = int(os.environ.get("SEARLO_RATE_PER_MIN", "220"))
-LIMIT = 5
+LIMIT = 1
 MAX_ATTEMPTS = 8
 CHUNK = 200
 FIELDS = ["title", "address", "rating", "ratingCount", "category",
           "phoneNumber", "website", "domain"]
 
-# ----------------------------------------------------------------- normalisation
-LEGAL = {"sarl", "sas", "sasu", "eurl", "sa", "sci"}
-ABBR = {
-    "av": "avenue", "ave": "avenue", "bd": "boulevard", "bld": "boulevard",
-    "blvd": "boulevard", "chem": "chemin", "pl": "place", "imp": "impasse",
-    "all": "allee", "rte": "route", "fg": "faubourg", "fbg": "faubourg",
-    "st": "saint", "ste": "sainte", "crs": "cours", "sq": "square",
-    "zi": "zone industrielle", "za": "zone artisanale",
-}
-
-
-def _tokens(s):
-    s = unicodedata.normalize("NFKD", str(s or ""))
-    s = "".join(c for c in s if not unicodedata.combining(c)).lower()
-    s = s.replace("&", " et ").replace("œ", "oe")
-    return re.findall(r"[a-z0-9]+", s)
-
-
-def norm_name(s):
-    return " ".join(t for t in _tokens(s) if t not in LEGAL)
-
-
-def norm_addr(s, title=None):
-    """Adresse normalisée. Google préfixe souvent l'adresse avec le nom de la
-    fiche ("100% Immobilier, 37 Pl. du Marché, ...") : ce préfixe est retiré."""
-    toks = _tokens(s)
-    if title:
-        t = _tokens(title)
-        if t and toks[:len(t)] == t:
-            toks = toks[len(t):]
-    out = []
-    for t in toks:
-        if t == "france":
-            continue
-        out.extend(ABBR.get(t, t).split())
-    return " ".join(out)
-
-
 def pick(name, addr, places):
-    """Retourne (place, raison). place=None => ligne ignorée."""
+    """Garde le résultat renvoyé tel quel. Retourne (place, raison)."""
     if not places:
         return None, "aucun_resultat"
-    if len(places) == 1:  # un seul résultat : gardé sans vérification
-        return places[0], "ok"
-    n = norm_name(name)
-    cands = [p for p in places if norm_name(p.get("title")) == n]
-    if not cands:
-        return None, "nom_different"
-    if addr:
-        a = norm_addr(addr)
-        cands = [p for p in cands if norm_addr(p.get("address"), p.get("title")) == a]
-        if not cands:
-            return None, "adresse_differente"
-    uniq = {(p.get("placeId") or p.get("cid") or id(p)): p for p in cands}
-    if len(uniq) != 1:
-        return None, "ambigu"
-    return next(iter(uniq.values())), "ok"
+    return places[0], "ok"
 
 
 # ---------------------------------------------------------------- rotation de clés
@@ -325,4 +273,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-          
+                  
