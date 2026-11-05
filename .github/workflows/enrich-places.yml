@@ -30,7 +30,7 @@ jobs:
       - name: Enrichissement
         env:
           # Secret : une clé par ligne (ou séparées par des virgules)
-          SEARLO_API_KEYS: ${{ secrets.SEARLO_API_KEYS }}
+          SEARLO_API_KEYS: ${{ secrets.SEARLO_API_KEYS2 }}
           INPUT_FILE: ${{ inputs.input_file }}
           START_ROW: ${{ inputs.start_row }}
           MAX_ROWS: ${{ inputs.max_rows }}
