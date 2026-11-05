@@ -66,6 +66,8 @@ def pick(name, addr, places):
     """Retourne (place, raison). place=None => ligne ignorée."""
     if not places:
         return None, "aucun_resultat"
+    if len(places) == 1:  # un seul résultat : gardé sans vérification
+        return places[0], "ok"
     n = norm_name(name)
     cands = [p for p in places if norm_name(p.get("title")) == n]
     if not cands:
@@ -317,3 +319,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+                  
