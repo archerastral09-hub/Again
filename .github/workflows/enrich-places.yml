@@ -1,0 +1,50 @@
+name: Enrichissement agences (Searlo places)
+
+on:
+  workflow_dispatch:
+    inputs:
+      input_file:
+        description: "Fichier source (xlsx, à la racine du repo)"
+        default: "agences_prospection.xlsx"
+      start_row:
+        description: "Index de départ (0 = première agence)"
+        default: "0"
+      max_rows:
+        description: "Nombre de lignes à traiter (0 = tout). 10 = test"
+        default: "10"
+
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install requests openpyxl
+
+      - name: Enrichissement
+        env:
+          # Secret : une clé par ligne (ou séparées par des virgules)
+          SEARLO_API_KEYS: ${{ secrets.SEARLO_API_KEYS }}
+          INPUT_FILE: ${{ inputs.input_file }}
+          START_ROW: ${{ inputs.start_row }}
+          MAX_ROWS: ${{ inputs.max_rows }}
+        run: |
+          python enrich_places.py \
+            --input "$INPUT_FILE" \
+            --start "$START_ROW" \
+            --max-rows "$MAX_ROWS" \
+            --output-dir output
+
+      - name: Upload résultats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agences-places-${{ github.run_id }}
+          path: output/
+          if-no-files-found: warn
