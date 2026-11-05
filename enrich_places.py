@@ -2,8 +2,7 @@
 """Enrichit agences_prospection.xlsx via Searlo GET /search/places.
 
 Une ligne source = une requête (q = nom, location = adresse si dispo, limit = 5).
-On garde le résultat dont nom (+ adresse si dispo) est identique après
-normalisation ; sinon la ligne est ignorée (raison tracée dans l'onglet "Ignorées").
+On garde le résultat dont nom (+ adresse si dispo) est identique après normalisation ; sinon la ligne est ignorée (raison tracée dans l'onglet "Ignorées").
 Plusieurs clés API : rotation (la moins récemment utilisée d'abord), cooldown sur
 429, clé retirée du pool sur 401/402/403.
 """
@@ -53,9 +52,16 @@ def norm_name(s):
     return " ".join(t for t in _tokens(s) if t not in LEGAL)
 
 
-def norm_addr(s):
+def norm_addr(s, title=None):
+    """Adresse normalisée. Google préfixe souvent l'adresse avec le nom de la
+    fiche ("100% Immobilier, 37 Pl. du Marché, ...") : ce préfixe est retiré."""
+    toks = _tokens(s)
+    if title:
+        t = _tokens(title)
+        if t and toks[:len(t)] == t:
+            toks = toks[len(t):]
     out = []
-    for t in _tokens(s):
+    for t in toks:
         if t == "france":
             continue
         out.extend(ABBR.get(t, t).split())
@@ -74,7 +80,7 @@ def pick(name, addr, places):
         return None, "nom_different"
     if addr:
         a = norm_addr(addr)
-        cands = [p for p in cands if norm_addr(p.get("address")) == a]
+        cands = [p for p in cands if norm_addr(p.get("address"), p.get("title")) == a]
         if not cands:
             return None, "adresse_differente"
     uniq = {(p.get("placeId") or p.get("cid") or id(p)): p for p in cands}
@@ -319,4 +325,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                  
+          
